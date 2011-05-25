@@ -18,6 +18,10 @@
 #import "MAFDSource.h"
 
 
+NSString *const MAAsyncSocketInterfaceAny = @"com.mikeash.MAAsyncSocketInterfaceAny";
+NSString *const MAAsyncSocketInterfaceLoopback = @"com.mikeash.MAAsyncSocketInterfaceLoopback";
+
+
 @implementation MAAsyncSocketListener
 
 + (id)listenerWithAddress: (NSData *)address error: (NSError **)error
@@ -25,13 +29,12 @@
     return [[[MAAsyncSimpleSocketListener alloc] initWithAddress: address error: error] autorelease];
 }
 
-+ (id)listenerWith4and6WithPortRange: (NSRange)r tryRandom: (BOOL)tryRandomPorts error: (NSError **)error
-{
-    NSError *localError = nil;
-    if(!error)
-        error = &localError;
-    
-    NSMutableData *addr4data = [NSMutableData dataWithLength: sizeof(struct sockaddr_in)];
+
+
++ (id)listenerWith4and6WithPort:(int)port interface:(NSString*)interface error:(NSError**)error {
+	if(port == 0) return nil;
+	
+	NSMutableData *addr4data = [NSMutableData dataWithLength: sizeof(struct sockaddr_in)];
     NSMutableData *addr6data = [NSMutableData dataWithLength: sizeof(struct sockaddr_in6)];
     struct sockaddr_in *addr4 = [addr4data mutableBytes];
     struct sockaddr_in6 *addr6 = [addr6data mutableBytes];
@@ -42,50 +45,58 @@
     addr4->sin_family = AF_INET;
     addr6->sin6_family = AF_INET6;
     
-    addr4->sin_addr.s_addr = INADDR_ANY;
-    addr6->sin6_addr = in6addr_any;
-    
-    MAAsyncCompoundSocketListener *listener = nil;
-    
+	if([interface isEqualToString:MAAsyncSocketInterfaceAny]) {
+		addr4->sin_addr.s_addr = htonl(INADDR_ANY);
+		addr6->sin6_addr = in6addr_any;
+	}else if([interface isEqualToString:MAAsyncSocketInterfaceLoopback]) {
+		addr4->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+		addr6->sin6_addr = in6addr_loopback;
+	}else{
+		// Implement support for arbitrary names (getaddrinfo?)
+		return nil;
+	}
+
+	addr4->sin_port = htons(port);
+	addr6->sin6_port = htons(port);
+	
+	MAAsyncSimpleSocketListener *listener4 = [[[MAAsyncSimpleSocketListener alloc] initWithAddress: addr4data error: error] autorelease];
+	if(!listener4) return nil;
+	
+	MAAsyncSimpleSocketListener *listener6 = [[[MAAsyncSimpleSocketListener alloc] initWithAddress: addr6data error: error] autorelease];
+	if(!listener6) {
+		[listener4 invalidate];
+		return nil;
+	}
+	
+	MAAsyncCompoundSocketListener *listener = [[[MAAsyncCompoundSocketListener alloc] init] autorelease];
+	[listener addListener:listener4];
+	[listener addListener:listener6];
+	return listener;
+}
+
+
++ (id)listenerWith4and6WithPortRange: (NSRange)r tryRandom: (BOOL)tryRandomPorts error: (NSError **)error {
+	NSError *localError = nil;
+    if(!error)
+        error = &localError;
+	
+	MAAsyncSocketListener *listener;
     for(NSUInteger i = 0; tryRandomPorts || i < r.length; i++)
     {
         int port = (i < r.length
                     ? i + r.location
                     : mach_absolute_time()) % 65536;
-        
-        // 0 has special meaning, which screws up the rest of the code
-        if(port == 0)
-            continue;
-        
-        addr4->sin_port = htons(port);
-        addr6->sin6_port = htons(port);
-        
-        MAAsyncSimpleSocketListener *listener4 = [[MAAsyncSimpleSocketListener alloc] initWithAddress: addr4data error: error];
-        if(listener4)
-        {
-            MAAsyncSimpleSocketListener *listener6 = [[MAAsyncSimpleSocketListener alloc] initWithAddress: addr6data error: error];
-            if(listener6)
-            {
-                listener = [[MAAsyncCompoundSocketListener alloc] init];
-                [listener addListener: listener4];
-                [listener addListener: listener6];
-                [listener4 release];
-                [listener6 release];
-                [listener autorelease];
-                break;
-            }
-            // everything from here is an error case
-            [listener4 release];
-        }
-        
-        // if it's NOT EADDRINUSE or EACCES then report it
+		listener = [self listenerWith4and6WithPort:port interface:MAAsyncSocketInterfaceAny error:error];
+		if(listener) break;
+		
         if(![[*error domain] isEqual: NSPOSIXErrorDomain] ||
            ([*error code] != EADDRINUSE && [*error code] != EACCES))
             break;
-    }
-    
-    return listener;
+	}
+	return listener;
 }
+
+
 
 - (int)port
 {

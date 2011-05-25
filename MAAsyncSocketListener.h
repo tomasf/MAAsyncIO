@@ -8,16 +8,20 @@
 
 #import <Cocoa/Cocoa.h>
 
+extern NSString *const MAAsyncSocketInterfaceAny;
+extern NSString *const MAAsyncSocketInterfaceLoopback;
 
 @class MAAsyncReader;
 @class MAAsyncWriter;
 @class MAFDSource;
+
 
 @interface MAAsyncSocketListener : NSObject
 {
 }
 
 + (id)listenerWithAddress: (NSData *)address error: (NSError **)error;
++ (id)listenerWith4and6WithPort:(int)port interface:(NSString*)interface error:(NSError**)error;
 + (id)listenerWith4and6WithPortRange: (NSRange)r tryRandom: (BOOL)tryRandomPorts error: (NSError **)error;
 
 - (int)port;
@@ -27,6 +31,7 @@
 - (void)invalidate;
 
 @end
+
 
 @interface MAAsyncSimpleSocketListener : MAAsyncSocketListener
 {
@@ -40,6 +45,7 @@
 - (id)initWithAddress: (NSData *)address error: (NSError **)error;
 
 @end
+
 
 @interface MAAsyncCompoundSocketListener : MAAsyncSocketListener
 {
