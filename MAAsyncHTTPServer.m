@@ -65,8 +65,7 @@
 {
     [reader readBytes:[request expectedContentLength] callback: ^(NSData *data, BOOL prematureEOF) {
         [request setContent:data];
-        _requestHandler(request, writer);            
-        [reader invalidate];
+        _requestHandler(request, writer);
     }];
 }
 
@@ -79,7 +78,6 @@
             if([request expectedContentLength] == 0)
             {
                 _requestHandler(request, writer);
-                [reader invalidate];
             }
             else
             {
@@ -89,6 +87,11 @@
             [request release];
         }
     }];
+	
+	[writer setDidWriteCallback:^{
+		[reader invalidate];
+		[writer invalidate];
+	}];
 }
 
 @end
